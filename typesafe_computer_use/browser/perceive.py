@@ -50,6 +50,7 @@ INTERACTIVE_JS = r"""
   const vw = window.innerWidth, vh = window.innerHeight;
   const out = [];
   const seen = new Set();
+  const nodes = [];
   let sid = 0, belowFold = 0, total = 0;
   for (const el of document.querySelectorAll(SEL)) {
     total++;
@@ -85,7 +86,7 @@ INTERACTIVE_JS = r"""
     const y = Math.round(r.top + r.height / 2);
     const top = document.elementFromPoint(Math.max(0, Math.min(x, vw - 1)), Math.max(0, Math.min(y, vh - 1)));
     const covered = !!(top && !el.contains(top) && !top.contains(el));
-    el.setAttribute("data-tscu", String(sid));
+    nodes.push(el);
     out.push({sid, tag: el.tagName.toLowerCase(), role: role || type,
               name, x, y, w: Math.round(r.width), h: Math.round(r.height),
               in_view: true, covered,
@@ -94,9 +95,12 @@ INTERACTIVE_JS = r"""
     sid++;
   }
   out.sort((a, b) => (Math.abs(a.y - b.y) > 8 ? a.y - b.y : a.x - b.x));
+  // Stamp through the kept node references. Renumbering by looking elements up by their
+  // provisional id collides as soon as an earlier renumbered element already carries that id,
+  // and then a click lands on another element (reproduced on docs.python.org/3/: "Tutorial"
+  // resolved to "Deprecations").
   out.forEach((o, i) => {
-    const el = document.querySelector('[data-tscu="' + o.sid + '"]');
-    if (el) el.setAttribute("data-tscu", String(i));
+    nodes[o.sid].setAttribute("data-tscu", String(i));
     o.index = i;
   });
   // --- visible text: prices, dates, errors, everything that is not a control --------
@@ -235,11 +239,46 @@ class Page:
         return self.field_count > 0
 
 
+def _read_settled(session: Any, *, tries: int = 6, wait_s: float = 0.15, load_s: float = 3.0) -> dict:
+    """Run the element walk, riding out a navigation that is still in flight.
+
+    Read mid-navigation, the walk either throws (the old document is torn down under it) or sees a
+    document with no body yet and returns zero elements. Either way the next decision would be made
+    on a page that is not there. Retry a thrown walk briefly, and when a loading document reads
+    empty, wait for it to finish loading and read again.
+    """
+    for attempt in range(tries):
+        try:
+            data = session.evaluate(INTERACTIVE_JS) or {}
+        except Exception:
+            if attempt == tries - 1:
+                raise
+            time.sleep(wait_s)
+            continue
+        if data.get("items") or attempt == tries - 1:
+            return data
+        try:
+            state = session.evaluate("document.readyState")
+        except Exception:
+            state = "loading"
+        if state == "complete":
+            return data
+        deadline = time.perf_counter() + load_s
+        while time.perf_counter() < deadline:
+            try:
+                if session.evaluate("document.readyState") == "complete":
+                    break
+            except Exception:
+                pass
+            time.sleep(0.05)
+    return {}
+
+
 def perceive(session: Any, *, budget: int = 120, text_budget: int = 120) -> Page:
     """One CDP round trip -> an ordered, labelled element list, plus the page's visible
     text as evidence blocks. No pixels."""
     start = time.perf_counter()
-    data = session.evaluate(INTERACTIVE_JS) or {}
+    data = _read_settled(session)
     elapsed = (time.perf_counter() - start) * 1000
     items = [
         Element(
