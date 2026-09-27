@@ -239,7 +239,7 @@ class Page:
         return self.field_count > 0
 
 
-def _read_settled(session: Any, *, tries: int = 6, wait_s: float = 0.15, load_s: float = 3.0) -> dict:
+def _read_settled(session: Any, *, tries: int = 6, wait_s: float = 0.15, load_s: float = 3.0, render_s: float = 3.0) -> dict:
     """Run the element walk, riding out a navigation that is still in flight.
 
     Read mid-navigation, the walk either throws (the old document is torn down under it) or sees a
@@ -262,6 +262,18 @@ def _read_settled(session: Any, *, tries: int = 6, wait_s: float = 0.15, load_s:
         except Exception:
             state = "loading"
         if state == "complete":
+            # A loaded document with nothing on it is usually a single-page app still rendering
+            # (Open WebUI draws a second after `load`). Deciding on it asks the classifier about a
+            # blank page. Poll for elements to appear; a page that really is empty costs render_s.
+            deadline = time.perf_counter() + render_s
+            while time.perf_counter() < deadline:
+                time.sleep(0.1)
+                try:
+                    data = session.evaluate(INTERACTIVE_JS) or {}
+                except Exception:
+                    continue
+                if data.get("items"):
+                    break
             return data
         deadline = time.perf_counter() + load_s
         while time.perf_counter() < deadline:
