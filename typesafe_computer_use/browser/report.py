@@ -44,21 +44,21 @@ class RunFolder:
     def log(self, msg: str = "") -> None:
         print(msg, flush=True)
         self.lines.append(msg)
-        with self.log_path.open("a") as f:
+        with self.log_path.open("a", encoding="utf-8") as f:
             f.write(msg + "\n")
 
     # -- per-step artefacts -------------------------------------------------
     def step_payload(self, n: int, text: str) -> None:
-        (self.root / f"step-{n:02d}-payload.txt").write_text(text)
+        (self.root / f"step-{n:02d}-payload.txt").write_text(text, encoding="utf-8")
 
     def step_history(self, n: int, history: list[str]) -> None:
-        (self.root / f"step-{n:02d}-history.json").write_text(json.dumps(history, indent=2))
+        (self.root / f"step-{n:02d}-history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
 
     def step_state(self, n: int, state: dict) -> None:
-        (self.root / f"step-{n:02d}-state.json").write_text(json.dumps(state, indent=2, default=str))
+        (self.root / f"step-{n:02d}-state.json").write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
 
     def step_answers(self, n: int, answers: dict[str, Any]) -> None:
-        (self.root / f"step-{n:02d}-answers.json").write_text(json.dumps(answers, indent=2, default=str))
+        (self.root / f"step-{n:02d}-answers.json").write_text(json.dumps(answers, indent=2, default=str), encoding="utf-8")
 
     def step_elements(self, n: int, page: Page, *, can_write: bool) -> None:
         (self.root / f"step-{n:02d}-elements.json").write_text(
@@ -87,7 +87,7 @@ class RunFolder:
         )
 
     def finish(self, payload: dict) -> None:
-        (self.root / "run.json").write_text(json.dumps(payload, indent=2, default=str))
+        (self.root / "run.json").write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
     def path(self, name: str) -> Path:
         return self.root / name
@@ -203,8 +203,8 @@ def load_step(run_dir: str | Path, n: int) -> dict:
     elements_path = run / f"step-{n:02d}-elements.json"
     if not elements_path.exists():
         raise FileNotFoundError(f"no {elements_path.name} in {run}")
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    elements = json.loads(elements_path.read_text())
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    elements = json.loads(elements_path.read_text(encoding="utf-8"))
     payload_path = run / f"step-{n:02d}-payload.txt"
     answers_path = run / f"step-{n:02d}-answers.json"
     state_path = run / f"step-{n:02d}-state.json"
@@ -213,10 +213,10 @@ def load_step(run_dir: str | Path, n: int) -> dict:
         "goal": meta.get("goal", ""),
         "page": page_from_elements(elements),
         "can_write": bool(elements.get("can_write", False)),
-        "payload": payload_path.read_text() if payload_path.exists() else "",
-        "state": json.loads(state_path.read_text()) if state_path.exists() else {},
-        "history": json.loads(history_path.read_text()) if history_path.exists() else [],
-        "answers": json.loads(answers_path.read_text()) if answers_path.exists() else {},
+        "payload": payload_path.read_text(encoding="utf-8") if payload_path.exists() else "",
+        "state": json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {},
+        "history": json.loads(history_path.read_text(encoding="utf-8")) if history_path.exists() else [],
+        "answers": json.loads(answers_path.read_text(encoding="utf-8")) if answers_path.exists() else {},
     }
 
 
