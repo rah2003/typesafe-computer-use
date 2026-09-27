@@ -196,6 +196,15 @@ def page_from_elements(data: dict) -> Page:
     )
 
 
+def _read_text(path: Path) -> str:
+    """UTF-8, falling back to cp1252 for run folders written on Windows before writes were made UTF-8."""
+    data = path.read_bytes()
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
+
+
 def load_step(run_dir: str | Path, n: int) -> dict:
     """Read one step back out of a run folder, for offline re-decision."""
     run = Path(run_dir)
@@ -203,8 +212,8 @@ def load_step(run_dir: str | Path, n: int) -> dict:
     elements_path = run / f"step-{n:02d}-elements.json"
     if not elements_path.exists():
         raise FileNotFoundError(f"no {elements_path.name} in {run}")
-    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
-    elements = json.loads(elements_path.read_text(encoding="utf-8"))
+    meta = json.loads(_read_text(meta_path)) if meta_path.exists() else {}
+    elements = json.loads(_read_text(elements_path))
     payload_path = run / f"step-{n:02d}-payload.txt"
     answers_path = run / f"step-{n:02d}-answers.json"
     state_path = run / f"step-{n:02d}-state.json"
@@ -213,10 +222,10 @@ def load_step(run_dir: str | Path, n: int) -> dict:
         "goal": meta.get("goal", ""),
         "page": page_from_elements(elements),
         "can_write": bool(elements.get("can_write", False)),
-        "payload": payload_path.read_text(encoding="utf-8") if payload_path.exists() else "",
-        "state": json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {},
-        "history": json.loads(history_path.read_text(encoding="utf-8")) if history_path.exists() else [],
-        "answers": json.loads(answers_path.read_text(encoding="utf-8")) if answers_path.exists() else {},
+        "payload": _read_text(payload_path) if payload_path.exists() else "",
+        "state": json.loads(_read_text(state_path)) if state_path.exists() else {},
+        "history": json.loads(_read_text(history_path)) if history_path.exists() else [],
+        "answers": json.loads(_read_text(answers_path)) if answers_path.exists() else {},
     }
 
 
