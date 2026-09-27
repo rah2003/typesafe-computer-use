@@ -263,8 +263,14 @@ def run_goal(
                 noops += 1
                 touched = False
         elif kind == "wait":
-            detail = "waited"
-            noops += 1
+            # Actually wait: watch for the page to change (a single-page app still rendering, a
+            # slow response). It used to return at once, so two waits on a page that renders a
+            # second after `load` (Open WebUI) ended the run on an empty element list.
+            next_page, waited_ms, changed = act.observe_until_changed(session, fp_before, timeout_ms=2000, poll_ms=50)
+            pending = next_page
+            detail = f"waited {waited_ms:.0f}ms"
+            if not changed:
+                noops += 1
             touched = False
         else:
             detail = kind
