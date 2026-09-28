@@ -137,6 +137,29 @@ def resolve_url(writer: Writer | None, goal: str, history: list[str]) -> tuple[s
     return (url, "writer") if url else ("", "writer_declined")
 
 
+# The desktop runner's cycle rule (runner.MAX_REPEATS), on the browser's page instead of the screen: an action
+# already taken on the same page, chosen again twice in a row, is a cycle or a click that does nothing. A click that
+# leaves the page as it was never counted as a no-op here, so a local decider at a low floor clicked the docs'
+# quick-search box 15 times (pydocs-json-module, 2026-09-27).
+MAX_REPEATS = 2
+
+
+def page_signature(page: Page) -> tuple:
+    """What 'the same page' means for the repeat guard: address, title, scroll position and the element labels in
+    order. Coordinates are left out, so a re-layout by a pixel is still the same page."""
+    return (page.url, page.title, page.scroll_y, tuple(e.name for e in page.items))
+
+
+def action_key(decision: Decision) -> str | None:
+    """The action as the repeat guard compares it; None for the ones that are not actions on the page."""
+    kind = decision.kind.choice
+    if kind in ("wait", "done", "none"):
+        return None  # waiting is repeating by design, and the stop kinds end the run anyway
+    if kind in ("click", "type_text"):
+        return f"{kind}:{decision.chosen_element}"
+    return kind
+
+
 def run_goal(
     session,
     client: TypeSafeClient,
@@ -161,6 +184,8 @@ def run_goal(
     pending: Page | None = None
     history: list[str] = []
     noops = 0
+    repeats = 0
+    seen: list[tuple[tuple, str]] = []
     started = time.perf_counter()
 
     for n in range(1, max_steps + 1):
@@ -207,6 +232,33 @@ def run_goal(
             runfolder.step_state(n, decision.state)
             runfolder.step_answers(n, decision.answers)
             runfolder.step_elements(n, page, can_write=can_write)
+
+        what = action_key(decision)
+        if what is not None:
+            here = page_signature(page)
+            repeats = repeats + 1 if (here, what) in seen else 0
+            seen.append((here, what))
+            if repeats >= MAX_REPEATS:
+                result.steps.append(
+                    Step(
+                        n=n,
+                        action="stalled",
+                        detail=f"{what} not taken: chosen again on an unchanged page",
+                        confidence=round(decision.confidence, 3),
+                        satisfied=round(float(decision.satisfied.noul), 3),
+                        elements=len(page.items),
+                        changed=False,
+                        perceive_ms=perceive_ms,
+                        decide_ms=decide_ms,
+                        act_ms=0.0,
+                        total_ms=(time.perf_counter() - step_started) * 1000,
+                        text_source="",
+                    )
+                )
+                if verbose:
+                    print(result.steps[-1].line(), flush=True)
+                result.outcome = "stalled"
+                break
 
         fp_before = act.fingerprint(page)
         kind = decision.kind.choice

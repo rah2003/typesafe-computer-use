@@ -392,3 +392,36 @@ def test_the_page_script_never_collects_what_was_typed_or_drafted():
     assert "p.isContentEditable || p.closest(SKIP)" in js
     # Still exactly one `.value` read in the whole script: a button input's own label.
     assert re.findall(r"\.value\b", js) == [".value"]
+
+
+# ------------------------------------------------------------ repeat guard
+def test_the_same_click_on_an_unchanged_page_stops_as_stalled_after_two(tmp_path):
+    browser = FakeBrowser(login_page())
+    client = FakeTypeSafe(*[("click", "2")] * 6)
+    result, folder = run(browser, client, tmp_path, steps=10)
+    assert result.outcome == "stalled"
+    assert [s.action for s in result.steps] == ["click", "click", "stalled"]  # the third identical click is not taken
+    assert json.loads((folder.root / "run.json").read_text())["outcome"] == "stalled"
+
+
+def test_a_cycle_of_two_clicks_on_an_unchanged_page_also_stalls(tmp_path):
+    browser = FakeBrowser(login_page())
+    client = FakeTypeSafe(("click", "2"), ("click", "0"), ("click", "2"), ("click", "0"), ("click", "2"))
+    result, _ = run(browser, client, tmp_path, steps=6)
+    assert result.outcome == "stalled"
+    assert [s.action for s in result.steps] == ["click", "click", "click", "stalled"]
+
+
+def test_different_clicks_on_the_same_page_are_not_a_repeat(tmp_path):
+    browser = FakeBrowser(login_page())
+    client = FakeTypeSafe(("click", "2"), ("click", "0"), ("click", "1"))
+    result, _ = run(browser, client, tmp_path, steps=3)
+    assert result.outcome == "max_steps"
+    assert [s.action for s in result.steps] == ["click", "click", "click"]
+
+
+def test_waiting_is_never_a_repeat(tmp_path):
+    browser = FakeBrowser(login_page())
+    client = FakeTypeSafe(("wait", None), ("wait", None), ("click", "2"))
+    result, _ = run(browser, client, tmp_path, steps=3)
+    assert "stalled" not in [s.action for s in result.steps]
